@@ -1,0 +1,14 @@
+name: build
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: Expand-Archive GoldModCpp_src.zip -DestinationPath .
+      - run: cmake -S GoldModCpp -B build -A Win32
+      - run: cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoldMod
+          path: build/Release/GoldMod.dll
