@@ -1,14 +1,35 @@
-name: build
-on: [push, workflow_dispatch]
+name: Build GoldCheat
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: Expand-Archive GoldModCpp_src.zip -DestinationPath .
-      - run: cmake -S GoldModCpp -B build -A Win32
-      - run: cmake --build build --config Release
+      - name: Найти папку проекта (где лежит CMakeLists.txt)
+        id: proj
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem -Recurse -Filter CMakeLists.txt | Where-Object { $_.FullName -notmatch 'third_party|build' } | Select-Object -First 1
+          if (-not $f) { Write-Error 'CMakeLists.txt не найден в репозитории'; exit 1 }
+          $dir = $f.DirectoryName
+          Write-Host "Проект: $dir"
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+      - name: Fetch third_party (если не закоммичены)
+        shell: pwsh
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          if (-not (Test-Path third_party/imgui/imgui.cpp)) { git clone --depth 1 --branch v1.91.9 https://github.com/ocornut/imgui.git third_party/imgui }
+          if (-not (Test-Path third_party/minhook/src/hook.c)) { git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git third_party/minhook }
+      - name: Configure (x86)
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: cmake -S . -B build -A Win32
+      - name: Build
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: cmake --build build --config Release
       - uses: actions/upload-artifact@v4
         with:
-          name: GoldMod
-          path: build/Release/GoldMod.dll
+          name: GoldCheat
+          path: ${{ steps.proj.outputs.dir }}/build/Release/GoldMod.dll
