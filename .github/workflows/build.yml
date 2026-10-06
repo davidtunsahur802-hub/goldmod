@@ -8,27 +8,47 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Найти папку проекта (где лежит CMakeLists.txt)
+
+      - name: Распаковать zip с исходниками
+        shell: pwsh
+        run: |
+          $zips = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter *.zip -File
+          if (-not $zips) { Write-Host 'zip в корне репозитория не найден - собираю как есть' }
+          foreach ($z in $zips) {
+            Write-Host "Распаковываю $($z.Name)"
+            Expand-Archive -Path $z.FullName -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "_unz/$($z.BaseName)") -Force
+          }
+
+      - name: Найти папку проекта (CMakeLists.txt + src/main.cpp)
         id: proj
         shell: pwsh
         run: |
-          $f = Get-ChildItem -Recurse -Filter CMakeLists.txt | Where-Object { $_.FullName -notmatch 'third_party|build' } | Select-Object -First 1
-          if (-not $f) { Write-Error 'CMakeLists.txt не найден в репозитории'; exit 1 }
-          $dir = $f.DirectoryName
+          Write-Host '--- файлы ---'
+          Get-ChildItem -Recurse -File -Path $env:GITHUB_WORKSPACE | Where-Object { $_.FullName -notmatch '[\\/](\.git|third_party|build)[\\/]' } | ForEach-Object { $_.FullName.Substring($env:GITHUB_WORKSPACE.Length) }
+          $dirs = Get-ChildItem -Recurse -Filter CMakeLists.txt -Path $env:GITHUB_WORKSPACE |
+            Where-Object { $_.FullName -notmatch '[\\/](\.git|third_party|build)[\\/]' } |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName 'src/main.cpp') } |
+            Sort-Object LastWriteTime -Descending
+          if (-not $dirs) { Write-Error 'Не найдена папка, где рядом лежат CMakeLists.txt и src/main.cpp'; exit 1 }
+          $dir = $dirs[0].DirectoryName
           Write-Host "Проект: $dir"
           "dir=$dir" >> $env:GITHUB_OUTPUT
-      - name: Fetch third_party (если не закоммичены)
+
+      - name: Fetch third_party (imgui, minhook)
         shell: pwsh
         working-directory: ${{ steps.proj.outputs.dir }}
         run: |
           if (-not (Test-Path third_party/imgui/imgui.cpp)) { git clone --depth 1 --branch v1.91.9 https://github.com/ocornut/imgui.git third_party/imgui }
           if (-not (Test-Path third_party/minhook/src/hook.c)) { git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git third_party/minhook }
+
       - name: Configure (x86)
         working-directory: ${{ steps.proj.outputs.dir }}
         run: cmake -S . -B build -A Win32
+
       - name: Build
         working-directory: ${{ steps.proj.outputs.dir }}
         run: cmake --build build --config Release
+
       - uses: actions/upload-artifact@v4
         with:
           name: GoldCheat
